@@ -1,5 +1,3 @@
-# custom_components/smart_place_ch/__init__.py
-
 import asyncio
 import logging
 import aiohttp
@@ -14,7 +12,7 @@ from .hub import SmartPlaceCHHub
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[str] = ["light"]
+PLATFORMS: list[str] = ["light", "event"]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Smart Place CH from a config entry."""

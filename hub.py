@@ -7,7 +7,7 @@ import re
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-from .const import DOMAIN
+from .const import DOMAIN, DOORBELL_RING_MESSAGE
 
 _LOGGER = logging.getLogger(__name__)
 class SmartPlaceCHHub:
@@ -69,9 +69,13 @@ class SmartPlaceCHHub:
         if self._main_ws and not self._main_ws.closed: await self._main_ws.close()
 
     @callback
-    def _dispatch_update(self, light_id: str, value):
+    def _dispatch_light_update(self, light_id: str, value):
         signal = f"update_{DOMAIN}_leuchte{light_id}"
         async_dispatcher_send(self.hass, signal, value)
+
+    def _dispatch_doorbell_event(self, message):
+        signal = f"ring"
+        async_dispatcher_send(self.hass, signal, message)
 
     async def _listen(self):
         retry_delay = 5
@@ -90,7 +94,11 @@ class SmartPlaceCHHub:
                                 if message.startswith("leuchte"):
                                     try:
                                         key, value_str = message.replace("leuchte", "").split(":")
-                                        self._dispatch_update(key, int(value_str))
+                                        self._dispatch_light_update(key, int(value_str))
+                                    except (ValueError, IndexError): pass
+                                elif message.startswith(DOORBELL_RING_MESSAGE):
+                                    try:
+                                        self._dispatch_doorbell_event(message)
                                     except (ValueError, IndexError): pass
                             elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR): break
             except Exception as e:
