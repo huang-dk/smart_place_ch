@@ -20,10 +20,10 @@ class SmartPlaceCHHub:
         self._listener_task = None
         self.lights = {}
 
-    async def async_setup(self, initial_url: str) -> bool:
+    async def async_setup(self, initial_token: str) -> bool:
         """Perform connection and device discovery."""
         _LOGGER.info("Starting Smart Place CH Hub setup")
-        self._main_uri = await self._get_main_websocket_uri(initial_url)
+        self._main_uri = await self._get_main_websocket_uri(initial_token)
         if not self._main_uri: return False
 
         try:
@@ -108,9 +108,10 @@ class SmartPlaceCHHub:
                 await asyncio.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, 120)
 
-    async def _get_main_websocket_uri(self, initial_url: str) -> str | None:
+    async def _get_main_websocket_uri(self, initial_token: str) -> str | None:
         headers = {"User-Agent": "Mozilla/5.0"}
-        bootstrap_url = initial_url.replace("https://", "wss://", 1)
+        # Example URL: wss://spr2.smartplace.ch:8770/StartAppExt/?TOKEN=y6n8fftlhglw59qqu85h98pfzlz86ehcy2okvbku06zpqpd99pi6xwai0kf4adnmeyziguekwnmy3b6no3q1smchli0qzvulfa07
+        bootstrap_url = f"wss://spr2.smartplace.ch:8770/StartAppExt/?TOKEN={initial_token}"
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(bootstrap_url, headers=headers, timeout=10, ssl=False) as ws:
