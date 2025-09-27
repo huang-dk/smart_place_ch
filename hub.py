@@ -19,16 +19,19 @@ class SmartPlaceCHHub:
         self._main_ws = None
         self._listener_task = None
         self.lights = {}
+        self._initial_token = None
 
     async def async_setup(self, initial_token: str) -> bool:
         """Perform connection and device discovery."""
         _LOGGER.info("Starting Smart Place CH Hub setup")
-        self._main_uri = await self._get_main_websocket_uri(initial_token)
-        if not self._main_uri: return False
-
+        self._initial_token = initial_token
+        self._main_uri = await self._get_main_websocket_uri(self._initial_token)
+        if not self._main_uri:
+            return False
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(self._main_uri, timeout=10, ssl=False) as ws:
+                    self._main_ws = ws
                     _LOGGER.info("WebSocket connected. Discovering devices.")
 
                     await ws.send_str("GiveMeMainmenu")
@@ -40,12 +43,12 @@ class SmartPlaceCHHub:
                     _LOGGER.info(f"Discovery finished. Found {len(self.lights)} lights.")
 
         except asyncio.TimeoutError:
-            _LOGGER.error("Timeout during device discovery.")
+            _LOGGER.error(f"Timeout when connecting to {self._main_uri}.")
             return False
         except Exception as e:
             _LOGGER.error(f"Error during discovery handshake: {e}", exc_info=True)
             return False
-        
+
         self._listener_task = self.hass.async_create_background_task(self._listen(), name="state_listener")
         _LOGGER.info("Smart Place CH Hub setup complete. Listener started.")
         return True
@@ -78,33 +81,56 @@ class SmartPlaceCHHub:
         async_dispatcher_send(self.hass, signal, message)
 
     async def _listen(self):
-        retry_delay = 5
+        retry_delay = 1
         while True:
+            self._main_uri = await self._get_main_websocket_uri(self._initial_token)
+            if not self._main_uri:
+                _LOGGER.error(f"Not able to get the URI for {self._initial_token}")
+                self._main_ws = None
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 120)
+                continue
             try:
                 async with aiohttp.ClientSession() as session:
-                    async with session.ws_connect(self._main_uri, timeout=10, ssl=False) as ws:
+                    async with session.ws_connect(self._main_uri, timeout=10, ssl=False, heartbeat=30) as ws:
                         self._main_ws = ws
                         _LOGGER.info("Persistent listener connection established.")
                         await ws.send_str("SocketConnected:1")
-                        retry_delay = 5
-                        async for msg in ws:
-                            if msg.type == aiohttp.WSMsgType.TEXT:
-                                message = msg.data
-                                _LOGGER.debug(f"Received message: {message}")
-                                if message.startswith("leuchte"):
-                                    try:
-                                        key, value_str = message.replace("leuchte", "").split(":")
-                                        self._dispatch_light_update(key, int(value_str))
-                                    except (ValueError, IndexError): pass
-                                elif message.startswith(DOORBELL_RING_MESSAGE):
-                                    try:
-                                        self._dispatch_doorbell_event(message)
-                                    except (ValueError, IndexError): pass
-                            elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR): break
+                        retry_delay = 1
+                        while not ws.closed:
+                            try:
+                                # Wait for a message for 60 seconds
+                                _LOGGER.debug("wWaiting for message..")
+                                msg = await ws.receive(timeout=60)
+                                if msg.type == aiohttp.WSMsgType.TEXT:
+                                    message = msg.data
+                                    _LOGGER.debug(f"Received message: {message}")
+                                    if message.startswith("leuchte"):
+                                        try:
+                                            key, value_str = message.replace("leuchte", "").split(":")
+                                            self._dispatch_light_update(key, int(value_str))
+                                        except (ValueError, IndexError): pass
+                                    elif message.startswith(DOORBELL_RING_MESSAGE):
+                                        try:
+                                            self._dispatch_doorbell_event(message)
+                                        except (ValueError, IndexError): pass
+                                elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                                    _LOGGER.info("Server closes connection")
+                                    break
+                                elif msg.type == aiohttp.WSMsgType.ERROR:
+                                    _LOGGER.error(f"WebSocket connection closed with exception {ws.exception()}")
+                                    break
+                            except asyncio.TimeoutError:
+                                # No message received in 60 seconds, send a ping.
+                                _LOGGER.debug("No message received in 60 seconds, sending a keep-alive ping.")
+                                await ws.send_str("SocketConnected:1")
             except Exception as e:
                 _LOGGER.error(f"Listener connection error: {e}")
             finally:
+                if self._main_ws and not self._main_ws.closed:
+                    await self._main_ws.close()
                 self._main_ws = None
+                _LOGGER.error(f"Not able to listen, retry in {retry_delay}s")
                 await asyncio.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, 120)
 
