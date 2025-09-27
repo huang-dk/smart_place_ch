@@ -1,3 +1,5 @@
+# custom_components/smart_place_ch/climate.py
+
 import logging
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -27,7 +29,6 @@ REVERSE_MODE_MAP = {
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up the climate platform from a config entry."""
-    # Assumes your hub object is stored here and has a 'klimas' dictionary
     hub = hass.data[DOMAIN][config_entry.entry_id]
     new_entities = []
 
@@ -44,8 +45,11 @@ class SmartPlaceCHKlima(ClimateEntity):
     _attr_should_poll = False
     _attr_has_entity_name = True
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_hvac_modes = [HVACMode.COOL, HVACMode.HEAT, HVACMode.OFF]
     _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
+    _attr_min_temp = 18
+    _attr_max_temp = 26
+    _attr_target_temperature_step = 0.5
+
     # Start as unavailable, wait for the first real state update
     _attr_available = False
 
@@ -64,7 +68,7 @@ class SmartPlaceCHKlima(ClimateEntity):
         self._hvac_action: HVACAction = HVACAction.OFF
 
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, self._device_id_num)},
+            "identifiers": {(DOMAIN, "Klima", self._device_id_num)},
             "name": self.name,
             "manufacturer": "Smart Place CH",
         }
@@ -83,11 +87,17 @@ class SmartPlaceCHKlima(ClimateEntity):
     def hvac_mode(self) -> HVACMode:
         """Return current hvac mode."""
         return self._hvac_mode
+        
+    @property
+    def hvac_modes(self) -> list[HVACMode]:
+        """Return the list of available hvac operation modes."""
+        # By returning a list with only the current mode, we tell HA
+        # there are no other options, so it hides the mode selector.
+        return [self.hvac_mode]
 
     @property
     def hvac_action(self) -> HVACAction:
         """Return the current running hvac operation."""
-        # If the device is off, the action is always off.
         if self._hvac_mode == HVACMode.OFF:
             return HVACAction.OFF
         return self._hvac_action
@@ -99,23 +109,8 @@ class SmartPlaceCHKlima(ClimateEntity):
             command = f"TEMPSOLL{self._device_id_num}:{temperature}"
             await self._hub.async_send_command(command)
 
-    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set new target hvac mode."""
-        command_value = ""
-        if hvac_mode == HVACMode.OFF:
-            # You must define the command to turn the device off.
-            # Assuming 'null' is used for this. Adjust if necessary.
-            command_value = "null"
-        else:
-            command_value = REVERSE_MODE_MAP.get(hvac_mode)
-
-        if command_value:
-            command = f"KLIMASINFO{self._device_id_num}:{command_value}"
-            await self._hub.async_send_command(command)
-
     async def async_added_to_hass(self) -> None:
         """Register for updates from the hub."""
-        # This signal should be dispatched by your hub when it receives a message for this device
         update_signal = f"update_{DOMAIN}_klima{self._device_id_num}"
         self.async_on_remove(
             async_dispatcher_connect(
@@ -126,11 +121,9 @@ class SmartPlaceCHKlima(ClimateEntity):
     @callback
     def _handle_update(self, data: dict) -> None:
         """Handle pushed data from the hub."""
-        # The hub should send a dictionary like: {"key": "TEMPIST", "value": "21.5"}
         key = data.get("key")
         value = data.get("value")
 
-        # First real data update, mark as available
         if not self._attr_available:
             self._attr_available = True
         
@@ -141,10 +134,8 @@ class SmartPlaceCHKlima(ClimateEntity):
         elif key == "KLIMASINFO":
             state = MODE_MAP.get(value)
             if state:
-                # Update mode only if the new state defines one (e.g. 'heizen' or 'kühlen')
                 if "mode" in state:
                     self._hvac_mode = state["mode"]
-                # Always update the action
                 self._hvac_action = state["action"]
 
         self.async_write_ha_state()

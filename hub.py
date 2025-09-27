@@ -19,6 +19,7 @@ class SmartPlaceCHHub:
         self._main_ws = None
         self._listener_task = None
         self.lights = {}
+        self.klimas = {}  # ADDED: Dictionary for climate devices
         self._initial_token = None
 
     async def async_setup(self, initial_token: str) -> bool:
@@ -40,7 +41,10 @@ class SmartPlaceCHHub:
                         if msg.type != aiohttp.WSMsgType.TEXT: continue
                         if msg.data == "GiveMeMainMenuFinished": break
                         self._parse_discovery_message(msg.data)
-                    _LOGGER.info(f"Discovery finished. Found {len(self.lights)} lights.")
+                    _LOGGER.info(
+                        f"Discovery finished. Found {len(self.lights)} lights "
+                        f"and {len(self.klimas)} climate devices."
+                    )
 
         except asyncio.TimeoutError:
             _LOGGER.error(f"Timeout when connecting to {self._main_uri}.")
@@ -54,6 +58,7 @@ class SmartPlaceCHHub:
         return True
     
     def _parse_discovery_message(self, message: str):
+        """Parse a discovery message for lights or climate devices."""
         try:
             if message.startswith("INHALTLeuchten"):
                 parts = message.replace("INHALTLeuchten", "").split(":", 1)
@@ -64,6 +69,16 @@ class SmartPlaceCHHub:
                 if "dimmer" in properties: light_type = "dimmer"
                 if light_id not in self.lights:
                     self.lights[light_id] = {"name": name, "type": light_type}
+
+            # ADDED: Discovery logic for climate devices
+            elif message.startswith("INHALTKlimas"):
+                parts = message.replace("INHALTKlimas", "").split(":", 1)
+                klima_id = parts[0]
+                properties = parts[1].split(",")
+                name = properties[0]
+                if klima_id not in self.klimas:
+                    self.klimas[klima_id] = {"name": name}
+
         except Exception:
             _LOGGER.warning(f"Could not parse discovery message: '{message}'")
     
@@ -73,15 +88,28 @@ class SmartPlaceCHHub:
 
     @callback
     def _dispatch_light_update(self, light_id: str, value):
+        """Dispatch an update for a light entity."""
         signal = f"update_{DOMAIN}_leuchte{light_id}"
         async_dispatcher_send(self.hass, signal, value)
 
+    # ADDED: Dispatcher for climate updates
+    @callback
+    def _dispatch_klima_update(self, klima_id: str, data: dict):
+        """Dispatch an update for a climate entity."""
+        signal = f"update_{DOMAIN}_klima{klima_id}"
+        async_dispatcher_send(self.hass, signal, data)
+
     def _dispatch_doorbell_event(self, message):
+        """Dispatch a doorbell ring event."""
         signal = f"ring"
         async_dispatcher_send(self.hass, signal, message)
 
     async def _listen(self):
+        """Listen for state changes on the WebSocket with reconnection logic."""
         retry_delay = 1
+        # ADDED: Regex to parse climate messages
+        klima_pattern = re.compile(r"^(TEMPIST|TEMPSOLL|KLIMASINFO)(\d+):(.+)$")
+
         while True:
             self._main_uri = await self._get_main_websocket_uri(self._initial_token)
             if not self._main_uri:
@@ -99,44 +127,56 @@ class SmartPlaceCHHub:
                         retry_delay = 1
                         while not ws.closed:
                             try:
-                                # Wait for a message for 60 seconds
-                                _LOGGER.debug("wWaiting for message..")
+                                _LOGGER.debug("Waiting for message..")
                                 msg = await ws.receive(timeout=60)
                                 if msg.type == aiohttp.WSMsgType.TEXT:
                                     message = msg.data
                                     _LOGGER.debug(f"Received message: {message}")
+                                    
                                     if message.startswith("leuchte"):
                                         try:
                                             key, value_str = message.replace("leuchte", "").split(":")
                                             self._dispatch_light_update(key, int(value_str))
                                         except (ValueError, IndexError): pass
+                                    
+                                    elif (klima_match := klima_pattern.match(message)):
+                                        try:
+                                            key, device_id, value = klima_match.groups()
+                                            update_data = {"key": key, "value": value}
+                                            self._dispatch_klima_update(device_id, update_data)
+                                        except (ValueError, IndexError): pass
+
                                     elif message.startswith(DOORBELL_RING_MESSAGE):
                                         try:
                                             self._dispatch_doorbell_event(message)
                                         except (ValueError, IndexError): pass
+
                                 elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                                    _LOGGER.info("Server closes connection")
+                                    _LOGGER.info("Server closed connection")
                                     break
                                 elif msg.type == aiohttp.WSMsgType.ERROR:
                                     _LOGGER.error(f"WebSocket connection closed with exception {ws.exception()}")
                                     break
+                            
                             except asyncio.TimeoutError:
-                                # No message received in 60 seconds, send a ping.
+                                # No message received, send a keep-alive ping.
                                 _LOGGER.debug("No message received in 60 seconds, sending a keep-alive ping.")
                                 await ws.send_str("SocketConnected:1")
+            
             except Exception as e:
                 _LOGGER.error(f"Listener connection error: {e}")
+            
             finally:
                 if self._main_ws and not self._main_ws.closed:
                     await self._main_ws.close()
                 self._main_ws = None
-                _LOGGER.error(f"Not able to listen, retry in {retry_delay}s")
+                _LOGGER.error(f"Disconnected from listener, will retry in {retry_delay}s")
                 await asyncio.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, 120)
 
     async def _get_main_websocket_uri(self, initial_token: str) -> str | None:
+        """Perform bootstrap connection to find the main WebSocket URI."""
         headers = {"User-Agent": "Mozilla/5.0"}
-        # Example URL: wss://spr2.smartplace.ch:8770/StartAppExt/?TOKEN=y6n8fftlhglw59qqu85h98pfzlz86ehcy2okvbku06zpqpd99pi6xwai0kf4adnmeyziguekwnmy3b6no3q1smchli0qzvulfa07
         bootstrap_url = f"wss://spr2.smartplace.ch:8770/StartAppExt/?TOKEN={initial_token}"
         try:
             async with aiohttp.ClientSession() as session:
@@ -151,6 +191,7 @@ class SmartPlaceCHHub:
             return None
             
     async def async_send_command(self, command_data: str):
+        """Send a command over the WebSocket."""
         if self._main_ws and not self._main_ws.closed:
             await self._main_ws.send_str(command_data)
         else:

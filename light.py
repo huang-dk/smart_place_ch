@@ -38,7 +38,7 @@ class SmartPlaceCHLight(LightEntity):
         self._brightness = 0
 
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, self._device_id_num)},
+            "identifiers": {(DOMAIN, "Leuchte", self._device_id_num)},
             "name": self.name,
             "manufacturer": "Smart Place CH",
         }
