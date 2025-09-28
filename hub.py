@@ -86,7 +86,6 @@ class SmartPlaceCHHub:
                 properties = parts[1].split(",")
                 name = properties[0]
                 type = properties[3]
-                _LOGGER.debug(f"Discovered {name} with id {jalousie_id}")
                 if jalousie_id not in self.jalousien:
                     self.jalousien[jalousie_id] = {"name": name, "type": type}
 
@@ -168,7 +167,6 @@ class SmartPlaceCHHub:
                                         try:
                                             device_id, position, tilt = jalousie_match.groups()
                                             update_data = {"position": position, "tilt": tilt}
-                                            _LOGGER.debug(f"Dispatch to blind {device_id} with {update_data} from {message}")
                                             self._dispatch_jalousie_update(device_id, update_data)
                                         except (ValueError, IndexError):
                                             _LOGGER.error(f"Mesage {message} cannot be parsed.")

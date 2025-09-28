@@ -43,7 +43,6 @@ class SmartPlaceCHJalousie(CoverEntity):
         self._attr_unique_id = f"{DOMAIN}_jalousie{self._device_id_num}"
 
         self._type = device_info.get("type")
-        _LOGGER.debug(f"Get {self._attr_name} with type {self._type}")
         if self._type != "markise":
             self._attr_supported_features = (
                 self._attr_supported_features
@@ -115,7 +114,6 @@ class SmartPlaceCHJalousie(CoverEntity):
 
     @callback
     def _handle_update(self, data: dict) -> None:
-        _LOGGER.debug(f"Received {data}")
         """Handle pushed data from the hub."""
         if not self._attr_available:
             self._attr_available = True
