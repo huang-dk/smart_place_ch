@@ -12,7 +12,7 @@ from .hub import SmartPlaceCHHub
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[str] = ["light", "event", "climate"]
+PLATFORMS: list[str] = ["light", "event", "climate", "cover"]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Smart Place CH from a config entry."""

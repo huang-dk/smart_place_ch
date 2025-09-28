@@ -19,7 +19,8 @@ class SmartPlaceCHHub:
         self._main_ws = None
         self._listener_task = None
         self.lights = {}
-        self.klimas = {}  # ADDED: Dictionary for climate devices
+        self.klimas = {}
+        self.jalousien = {} # ADDED: Dictionary for blind devices
         self._initial_token = None
 
     async def async_setup(self, initial_token: str) -> bool:
@@ -42,8 +43,8 @@ class SmartPlaceCHHub:
                         if msg.data == "GiveMeMainMenuFinished": break
                         self._parse_discovery_message(msg.data)
                     _LOGGER.info(
-                        f"Discovery finished. Found {len(self.lights)} lights "
-                        f"and {len(self.klimas)} climate devices."
+                        f"Discovery finished. Found {len(self.lights)} lights, "
+                        f"{len(self.klimas)} climate devices, and {len(self.jalousien)} blinds."
                     )
 
         except asyncio.TimeoutError:
@@ -70,7 +71,6 @@ class SmartPlaceCHHub:
                 if light_id not in self.lights:
                     self.lights[light_id] = {"name": name, "type": light_type}
 
-            # ADDED: Discovery logic for climate devices
             elif message.startswith("INHALTKlimas"):
                 parts = message.replace("INHALTKlimas", "").split(":", 1)
                 klima_id = parts[0]
@@ -78,6 +78,15 @@ class SmartPlaceCHHub:
                 name = properties[0]
                 if klima_id not in self.klimas:
                     self.klimas[klima_id] = {"name": name}
+            
+            # ADDED: Discovery logic for blinds
+            elif message.startswith("INHALTJalousien"):
+                parts = message.replace("INHALTJalousien", "").split(":", 1)
+                jalousie_id = parts[0]
+                properties = parts[1].split(",")
+                name = properties[0]
+                if jalousie_id not in self.jalousien:
+                    self.jalousien[jalousie_id] = {"name": name}
 
         except Exception:
             _LOGGER.warning(f"Could not parse discovery message: '{message}'")
@@ -92,11 +101,17 @@ class SmartPlaceCHHub:
         signal = f"update_{DOMAIN}_leuchte{light_id}"
         async_dispatcher_send(self.hass, signal, value)
 
-    # ADDED: Dispatcher for climate updates
     @callback
     def _dispatch_klima_update(self, klima_id: str, data: dict):
         """Dispatch an update for a climate entity."""
         signal = f"update_{DOMAIN}_klima{klima_id}"
+        async_dispatcher_send(self.hass, signal, data)
+
+    # ADDED: Dispatcher for jalousie updates
+    @callback
+    def _dispatch_jalousie_update(self, jalousie_id: str, data: dict):
+        """Dispatch an update for a jalousie entity."""
+        signal = f"update_{DOMAIN}_jalousie{jalousie_id}"
         async_dispatcher_send(self.hass, signal, data)
 
     def _dispatch_doorbell_event(self, message):
@@ -107,8 +122,8 @@ class SmartPlaceCHHub:
     async def _listen(self):
         """Listen for state changes on the WebSocket with reconnection logic."""
         retry_delay = 1
-        # ADDED: Regex to parse climate messages
         klima_pattern = re.compile(r"^(TEMPIST|TEMPSOLL|KLIMASINFO)(\d+):(.+)$")
+        jalousie_pattern = re.compile(r"^JALICO(\d+):(\d{2,3})-(\d{2})$") # ADDED: Regex for blinds
 
         while True:
             self._main_uri = await self._get_main_websocket_uri(self._initial_token)
@@ -144,6 +159,14 @@ class SmartPlaceCHHub:
                                             key, device_id, value = klima_match.groups()
                                             update_data = {"key": key, "value": value}
                                             self._dispatch_klima_update(device_id, update_data)
+                                        except (ValueError, IndexError): pass
+
+                                    # ADDED: Blind state parsing
+                                    elif (jalousie_match := jalousie_pattern.match(message)):
+                                        try:
+                                            device_id, position, tilt = jalousie_match.groups()
+                                            update_data = {"position": position, "tilt": tilt}
+                                            self._dispatch_jalousie_update(device_id, update_data)
                                         except (ValueError, IndexError): pass
 
                                     elif message.startswith(DOORBELL_RING_MESSAGE):
