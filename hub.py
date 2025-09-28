@@ -79,14 +79,16 @@ class SmartPlaceCHHub:
                 if klima_id not in self.klimas:
                     self.klimas[klima_id] = {"name": name}
             
-            # ADDED: Discovery logic for blinds
+            # INHALTJalousien1:M_SI_01 Markise,310px,863px,markise,,60,Uebersicht1
             elif message.startswith("INHALTJalousien"):
                 parts = message.replace("INHALTJalousien", "").split(":", 1)
                 jalousie_id = parts[0]
                 properties = parts[1].split(",")
                 name = properties[0]
+                type = properties[3]
+                _LOGGER.debug(f"Discovered {name} with id {jalousie_id}")
                 if jalousie_id not in self.jalousien:
-                    self.jalousien[jalousie_id] = {"name": name}
+                    self.jalousien[jalousie_id] = {"name": name, "type": type}
 
         except Exception:
             _LOGGER.warning(f"Could not parse discovery message: '{message}'")
@@ -123,7 +125,7 @@ class SmartPlaceCHHub:
         """Listen for state changes on the WebSocket with reconnection logic."""
         retry_delay = 1
         klima_pattern = re.compile(r"^(TEMPIST|TEMPSOLL|KLIMASINFO)(\d+):(.+)$")
-        jalousie_pattern = re.compile(r"^JALICO(\d+):(\d{2,3})-(\d{2})$") # ADDED: Regex for blinds
+        jalousie_pattern = re.compile(r"^JALICO(\d+):(\d+)-(\d{2})$") # ADDED: Regex for blinds
 
         while True:
             self._main_uri = await self._get_main_websocket_uri(self._initial_token)
@@ -166,8 +168,11 @@ class SmartPlaceCHHub:
                                         try:
                                             device_id, position, tilt = jalousie_match.groups()
                                             update_data = {"position": position, "tilt": tilt}
+                                            _LOGGER.debug(f"Dispatch to blind {device_id} with {update_data} from {message}")
                                             self._dispatch_jalousie_update(device_id, update_data)
-                                        except (ValueError, IndexError): pass
+                                        except (ValueError, IndexError):
+                                            _LOGGER.error(f"Mesage {message} cannot be parsed.")
+                                            pass
 
                                     elif message.startswith(DOORBELL_RING_MESSAGE):
                                         try:

@@ -31,8 +31,6 @@ class SmartPlaceCHJalousie(CoverEntity):
         CoverEntityFeature.OPEN
         | CoverEntityFeature.CLOSE
         | CoverEntityFeature.STOP
-        | CoverEntityFeature.OPEN_TILT
-        | CoverEntityFeature.CLOSE_TILT
     )
     # Start as unavailable, wait for the first real state update
     _attr_available = False
@@ -43,7 +41,16 @@ class SmartPlaceCHJalousie(CoverEntity):
         
         self._attr_name = device_info.get("name", f"Jalousie {device_id}")
         self._attr_unique_id = f"{DOMAIN}_jalousie{self._device_id_num}"
-        
+
+        self._type = device_info.get("type")
+        _LOGGER.debug(f"Get {self._attr_name} with type {self._type}")
+        if self._type != "markise":
+            self._attr_supported_features = (
+                self._attr_supported_features
+                | CoverEntityFeature.OPEN_TILT
+                | CoverEntityFeature.CLOSE_TILT
+            )
+
         # Internal state attributes
         self._position: int | None = None
         self._tilt_position: int | None = None
@@ -108,6 +115,7 @@ class SmartPlaceCHJalousie(CoverEntity):
 
     @callback
     def _handle_update(self, data: dict) -> None:
+        _LOGGER.debug(f"Received {data}")
         """Handle pushed data from the hub."""
         if not self._attr_available:
             self._attr_available = True
