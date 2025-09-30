@@ -43,7 +43,8 @@ class SmartPlaceCHJalousie(CoverEntity):
         self._attr_unique_id = f"{DOMAIN}_jalousie{self._device_id_num}"
 
         self._type = device_info.get("type")
-        if self._type != "markise":
+        # Only "jalousie" supports TILT.
+        if self._type == "jalousie":
             self._attr_supported_features = (
                 self._attr_supported_features
                 | CoverEntityFeature.OPEN_TILT
