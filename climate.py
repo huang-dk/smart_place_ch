@@ -48,7 +48,7 @@ class SmartPlaceCHKlima(ClimateEntity):
     _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
     _attr_min_temp = 18
     _attr_max_temp = 26
-    _attr_target_temperature_step = 0.5
+    _attr_target_temperature_step = 1
 
     # Start as unavailable, wait for the first real state update
     _attr_available = False
@@ -106,7 +106,7 @@ class SmartPlaceCHKlima(ClimateEntity):
         """Set new target temperature."""
         temperature = kwargs.get(ATTR_TEMPERATURE)
         if temperature is not None:
-            command = f"TEMPSOLL{self._device_id_num}:{temperature}"
+            command = f"TEMPSOLL{self._device_id_num}:{int(temperature)}"
             await self._hub.async_send_command(command)
 
     async def async_added_to_hass(self) -> None:
