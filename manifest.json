@@ -2,8 +2,8 @@
   "domain": "smart_place_ch",
   "name": "SMARTPLACE CH",
   "config_flow": true,
-  "documentation": "https://github.com/mariohuang/smart_place_ch",
-  "codeowners": ["@mariohuang"],
+  "documentation": "https://github.com/huang-dk/smart_place_ch",
+  "codeowners": ["@huang-dk"],
   "requirements": [],
   "version": "1.0.0",
   "iot_class": "cloud_push"
